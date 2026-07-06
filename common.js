@@ -13,19 +13,49 @@
 // які на українських e-commerce сайтах міняються часто.
 
 import * as cheerio from 'cheerio';
+import { ProxyAgent } from 'undici';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 const FETCH_TIMEOUT_MS = 12000;
 const PUPPETEER_NAV_TIMEOUT_MS = 20000;
 
+// ---------- Проксі (опційно) ----------
+// Щоб уникнути блокування за IP датацентру (МТА, iStore повертають 403
+// з IP Render/AWS/GCP тощо) — задай в змінних середовища PROXY_URL, напр.:
+//   PROXY_URL=http://login:password\@ua-proxy-host:port
+// Без цієї змінної все працює як раніше (прямі запити з IP сервера).
+function getProxyConfig() {
+  const url = process.env.PROXY_URL;
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    return {
+      href: url,
+      server: `${u.protocol}//${u.hostname}:${u.port || (u.protocol === 'https:' ? 443 : 80)}`,
+      hostPort: `${u.hostname}:${u.port || (u.protocol === 'https:' ? 443 : 80)}`,
+      username: decodeURIComponent(u.username || ''),
+      password: decodeURIComponent(u.password || ''),
+    };
+  } catch {
+    console.error('[retail-parser] PROXY_URL некоректний, ігнорую:', url);
+    return null;
+  }
+}
+
+const proxyConfig = getProxyConfig();
+let proxyAgent = null;
+if (proxyConfig) {
+  proxyAgent = new ProxyAgent(proxyConfig.href);
+  console.log(`[retail-parser] проксі увімкнено: ${proxyConfig.hostPort}`);
+}
+
 let browserPromise = null;
 export async function getBrowser() {
   if (!browserPromise) {
     const puppeteer = await import('puppeteer');
-    browserPromise = puppeteer.default.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-    });
+    const args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'];
+    if (proxyConfig) args.push(`--proxy-server=${proxyConfig.hostPort}`);
+    browserPromise = puppeteer.default.launch({ headless: true, args });
   }
   return browserPromise;
 }
@@ -50,6 +80,7 @@ export async function fetchHtml(url) {
       },
       signal: controller.signal,
       redirect: 'follow',
+      ...(proxyAgent ? { dispatcher: proxyAgent } : {}),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.text();
@@ -219,6 +250,9 @@ export async function withPuppeteerPage(fn) {
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
+    if (proxyConfig && proxyConfig.username) {
+      await page.authenticate({ username: proxyConfig.username, password: proxyConfig.password });
+    }
     await page.setUserAgent(UA);
     await page.setViewport({ width: 1366, height: 900 });
     page.setDefaultNavigationTimeout(PUPPETEER_NAV_TIMEOUT_MS);
