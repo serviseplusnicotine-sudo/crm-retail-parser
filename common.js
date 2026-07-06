@@ -295,7 +295,7 @@ export async function scrapeStore(config, product) {
       };
     }
   } catch (e) {
-    // тихо падаємо в Puppeteer-шлях нижче
+    console.error(`[retail-parser] ${config.name} fetch-шлях впав: ${e instanceof Error ? e.message : e}`);
   }
 
   // 2) fallback — headless-браузер із набором тексту у пошук сайту
@@ -316,7 +316,9 @@ export async function scrapeStore(config, product) {
       }
       return { store: config.name, price: 0, available: false, updated, status: 'no-product' };
     } catch (e) {
-      return { store: config.name, price: 0, available: false, updated, status: 'error' };
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`[retail-parser] ${config.name} puppeteer-шлях впав: ${msg}`);
+      return { store: config.name, price: 0, available: false, updated, status: 'error', error: msg };
     }
   }
 

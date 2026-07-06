@@ -49,12 +49,14 @@ app.post('/api/retail-prices', async (req, res) => {
 
   const results = settled.map((r, i) => {
     if (r.status === 'fulfilled') return r.value;
+    console.error(`[retail-parser] ${targetStores[i]} failed:`, r.reason);
     return {
       store: targetStores[i],
       price: 0,
       available: false,
       updated: new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' }),
       status: 'error',
+      error: r.reason instanceof Error ? r.reason.message : String(r.reason),
     };
   });
 
