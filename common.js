@@ -1,16 +1,21 @@
 // Спільні утиліти для всіх парсерів роздрібних магазинів.
 //
 // Архітектура: для кожного магазину намагаємось спочатку зробити швидкий
-// запит (plain fetch + cheerio). Якщо сторінка не серверно-рендериться
-// (SPA-пошук на JS) або швидкий шлях не дав кандидатів — падаємо в
-// Puppeteer (headless Chrome), який рендерить сторінку по-справжньому і
-// вміє друкувати запит у видиме поле пошуку.
+// запит (plain fetch + cheerio, або власна логіка магазину через rawFetch).
+// Якщо сторінка не серверно-рендериться (SPA-пошук на JS) або швидкий шлях
+// не дав кандидатів — падаємо в Puppeteer (headless Chrome), який рендерить
+// сторінку по-справжньому і вміє друкувати запит у видиме поле пошуку.
 //
 // Це свідомий компроміс: ми не завжди знаємо наперед, чи сайт
 // серверно-рендерить видачу пошуку. Generic-екстрактор шукає на сторінці
 // посилання на товар (текст 6-160 символів) поруч з ціною у форматі
 // "12 345 ₴" / "12345 грн" — без прив'язки до конкретних CSS-класів,
 // які на українських e-commerce сайтах міняються часто.
+//
+// Puppeteer — важкий ресурс (headless Chrome), тому одночасна кількість
+// відкритих сторінок обмежена через acquirePuppeteerSlot/releasePuppeteerSlot
+// нижче — інакше на невеликому сервері (512MB-1GB RAM) кілька одночасних
+// Chrome-сторінок можуть вивалити процес по OOM (перевірено на практиці).
 
 import * as cheerio from 'cheerio';
 import { ProxyAgent } from 'undici';
@@ -49,6 +54,10 @@ if (proxyConfig) {
   console.log(`[retail-parser] проксі увімкнено: ${proxyConfig.hostPort}`);
 }
 
+export function hasProxy() {
+  return !!proxyConfig;
+}
+
 let browserPromise = null;
 export async function getBrowser() {
   if (!browserPromise) {
@@ -68,25 +77,79 @@ export async function closeBrowser() {
   }
 }
 
-export async function fetchHtml(url) {
+// ---------- Обмеження одночасних Puppeteer-сторінок ----------
+// На маленьких серверах (512MB-1GB RAM) кілька одночасних headless Chrome
+// сторінок можуть вивалити процес по пам'яті (спостерігалось на практиці:
+// сервер падав і рестартувався під час одночасного скрапу 6 магазинів).
+// Обмежуємо максимум одночасних сторінок і чергуємо решту.
+const MAX_CONCURRENT_PUPPETEER = 2;
+let activePuppeteer = 0;
+const puppeteerQueue = [];
+
+function acquirePuppeteerSlot() {
+  return new Promise((resolve) => {
+    const tryAcquire = () => {
+      if (activePuppeteer < MAX_CONCURRENT_PUPPETEER) {
+        activePuppeteer++;
+        resolve();
+      } else {
+        puppeteerQueue.push(tryAcquire);
+      }
+    };
+    tryAcquire();
+  });
+}
+
+function releasePuppeteerSlot() {
+  activePuppeteer--;
+  const next = puppeteerQueue.shift();
+  if (next) next();
+}
+
+// ---------- Низькорівневий fetch (для кастомної логіки магазину) ----------
+// На відміну від fetchHtml — повертає сирий Response (щоб можна було читати
+// заголовки/куки), підтримує довільний метод/тіло/заголовки. Використовується
+// магазинами з нестандартним пошуком (напр. GRO: cookie+CSRF, JustBuy: JSON API).
+export async function rawFetch(url, opts = {}) {
   const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const t = setTimeout(() => controller.abort(), opts.timeout ?? FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, {
+    return await fetch(url, {
+      method: opts.method || 'GET',
+      body: opts.body,
       headers: {
         'User-Agent': UA,
         'Accept-Language': 'uk-UA,uk;q=0.9,ru;q=0.8,en;q=0.7',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        ...opts.headers,
       },
       signal: controller.signal,
-      redirect: 'follow',
+      redirect: opts.redirect || 'follow',
       ...(proxyAgent ? { dispatcher: proxyAgent } : {}),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.text();
   } finally {
     clearTimeout(t);
   }
+}
+
+// Витягує "ім'я=значення" з усіх Set-Cookie заголовків відповіді, готове для
+// підстановки у Cookie-заголовок наступного запиту (сесія без cookie-jar).
+export function collectCookies(res) {
+  let raw = [];
+  if (typeof res.headers.getSetCookie === 'function') {
+    raw = res.headers.getSetCookie();
+  } else {
+    const single = res.headers.get('set-cookie');
+    if (single) raw = [single];
+  }
+  return raw.map((c) => c.split(';')[0]).join('; ');
+}
+
+export async function fetchHtml(url) {
+  const res = await rawFetch(url, {
+    headers: { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
 }
 
 // ---------- Ціни ----------
@@ -262,6 +325,18 @@ export async function withPuppeteerPage(fn) {
   }
 }
 
+// Те саме, але з обмеженням кількості одночасних сторінок (див.
+// MAX_CONCURRENT_PUPPETEER вище) — використовується в scrapeStore, коли
+// кілька магазинів скрапляться паралельно (Promise.allSettled у server.js).
+async function withPuppeteerPageLimited(fn) {
+  await acquirePuppeteerSlot();
+  try {
+    return await withPuppeteerPage(fn);
+  } finally {
+    releasePuppeteerSlot();
+  }
+}
+
 // Друк запиту у перше видиме поле пошуку на сторінці (без прив'язки до
 // конкретного сайту) — перебирає типові селектори.
 const SEARCH_INPUT_SELECTORS = [
@@ -304,10 +379,14 @@ export async function typeIntoSiteSearch(page, query) {
 
 // ---------- Оркестратор одного магазину ----------
 // config:
-//   name          — назва магазину (як у RetailStore.store)
-//   baseUrl       — головна сторінка (для fallback через Puppeteer)
-//   searchUrl(q)  — функція, що будує URL сторінки видачі пошуку (пробуємо plain fetch)
-//   usePuppeteerFallback — чи пробувати headless-браузер, якщо fetch не дав збігу
+//   name                     — назва магазину (як у RetailStore.store)
+//   baseUrl                  — головна сторінка (для fallback через Puppeteer)
+//   searchUrl(q)              — функція, що будує URL сторінки видачі пошуку (пробуємо plain fetch)
+//   usePuppeteerFallback      — чи пробувати headless-браузер, якщо fetch не дав збігу
+//   skipPuppeteerWithoutProxy — не пробувати Puppeteer, якщо PROXY_URL не задано
+//                                (для магазинів, які блокують за IP датацентру —
+//                                Puppeteer з того ж IP теж буде заблоковано,
+//                                тож спроба лише марно вантажить сервер)
 //
 // Повертає { store, price, available, updated, status, url?, matchedTitle? }
 export async function scrapeStore(config, product) {
@@ -334,8 +413,14 @@ export async function scrapeStore(config, product) {
 
   // 2) fallback — headless-браузер із набором тексту у пошук сайту
   if (config.usePuppeteerFallback !== false) {
+    if (config.skipPuppeteerWithoutProxy && !hasProxy()) {
+      return {
+        store: config.name, price: 0, available: false, updated, status: 'error',
+        error: 'Заблоковано за IP хостингу — потрібен проксі (PROXY_URL)',
+      };
+    }
     try {
-      const result = await withPuppeteerPage(async (page) => {
+      const result = await withPuppeteerPageLimited(async (page) => {
         await page.goto(config.baseUrl, { waitUntil: 'domcontentloaded' });
         const typed = await typeIntoSiteSearch(page, query);
         if (!typed) return null;

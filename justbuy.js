@@ -1,15 +1,55 @@
-import { scrapeStore } from './common.js';
+import { rawFetch, buildSearchQuery, scoreMatch, MATCH_THRESHOLD } from './common.js';
 
-// JustBuy (justbuy.com.ua) — головна сторінка рендериться сервером (велике
-// дерево категорій присутнє у HTML без JS), тож, ймовірно, і видача
-// пошуку теж. Точний URL параметра пошуку не підтверджено — пробуємо
-// найпоширеніший Magento-подібний шлях, з Puppeteer-фолбеком.
-const config = {
-  name: 'JustBuy',
-  baseUrl: 'https://justbuy.com.ua/en',
-  searchUrl: (q) => `https://justbuy.com.ua/en/catalogsearch/result/?q=${encodeURIComponent(q)}`,
-};
+// JustBuy (justbuy.com.ua) — Next.js-фронтенд, видача пошуку рендериться
+// клієнтським JS, тож у сирому HTML цін немає. Але сайт ходить у власний
+// JSON API: POST https://api.justbuy.com.ua/global-search/content
+// { "query": "..." } -> { responseData: { products: { data: [...] } } }.
+// Знайдено через перехоплення fetch/XHR у реальному пошуковому полі сайту.
+// Puppeteer тут не потрібен — це чистий і надійний JSON-шлях.
 
-export function scrapeJustBuy(product) {
-  return scrapeStore(config, product);
+const API_URL = 'https://api.justbuy.com.ua/global-search/content';
+const SEARCH_PAGE = (q) => `https://justbuy.com.ua/ua/search?q=${encodeURIComponent(q)}`;
+
+export async function scrapeJustBuy(product) {
+  const query = buildSearchQuery(product);
+  const now = new Date();
+  const updated = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} · ${now.toLocaleDateString('uk-UA')}`;
+
+  try {
+    const res = await rawFetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    const items = json?.responseData?.products?.data || [];
+
+    let best = null;
+    let bestScore = 0;
+    for (const p of items) {
+      const title = p?.nameI18n?.ua || p?.nameI18n?.ru || p?.nameI18n?.en || '';
+      const s = scoreMatch(query, title);
+      if (s > bestScore) {
+        bestScore = s;
+        best = {
+          title,
+          price: p.price,
+          available: p.availabilityStatus === 'IN_STOCK',
+        };
+      }
+    }
+
+    if (best && bestScore >= MATCH_THRESHOLD) {
+      return {
+        store: 'JustBuy', price: best.price, available: best.available,
+        updated, status: 'ok', url: SEARCH_PAGE(query), matchedTitle: best.title,
+      };
+    }
+    return { store: 'JustBuy', price: 0, available: false, updated, status: 'no-product' };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[retail-parser] JustBuy впав: ${msg}`);
+    return { store: 'JustBuy', price: 0, available: false, updated, status: 'error', error: msg };
+  }
 }
