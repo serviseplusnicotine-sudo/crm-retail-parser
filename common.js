@@ -223,14 +223,51 @@ export function isAccessoryTitle(title) {
   return ACCESSORY_RE.test((title || '').trim());
 }
 
-// Проста оцінка збігу: частка токенів запиту, які знайшлись у назві кандидата.
+// Кольори та "лінійки" моделей — за ними товар легко переплутати з
+// сусіднім (iPad проти iPad Air, Silver проти Space Gray), а звичайний
+// підрахунок збігу токенів цього не бачить: зайві слова в назві кандидата
+// (яких немає в запиті) взагалі не штрафуються. Звідси баг: "iPad 11
+// Silver" впевнено матчився на "iPad Air 11 ... Space Gray", бо решта
+// слів співпала, а "Air"/"Space Gray" просто ігнорувались.
+const COLOR_WORDS = new Set([
+  'black', 'white', 'blue', 'red', 'green', 'purple', 'pink', 'silver', 'gold', 'gray', 'grey',
+  'graphite', 'titanium', 'obsidian', 'lavender', 'icyblue', 'navy', 'mint', 'cream', 'bronze',
+  'beige', 'coral', 'yellow', 'orange', 'rose', 'violet', 'charcoal', 'jetblack', 'fog', 'indigo',
+  'lilac', 'graygreen', 'transparent', 'teal', 'sage', 'midnight', 'starlight', 'ultramarine',
+]);
+const LINE_MODIFIERS = new Set([
+  'air', 'pro', 'max', 'ultra', 'plus', 'mini', 'se', 'fe', 'lite', 'note', 'fold', 'flip', 'classic', 'active',
+]);
+
+// Проста оцінка збігу: частка токенів запиту, які знайшлись у назві
+// кандидата, з штрафом за конфлікт кольору чи "лінійки" моделі (Air/Pro/Max/...).
 export function scoreMatch(query, title) {
   const qTokens = tokenize(query);
-  const tTokens = new Set(tokenize(title));
+  const tTokensArr = tokenize(title);
+  const tTokens = new Set(tTokensArr);
   if (qTokens.length === 0) return 0;
   let hit = 0;
   for (const t of qTokens) if (tTokens.has(t)) hit++;
-  return hit / qTokens.length;
+  let score = hit / qTokens.length;
+
+  // Конфлікт кольору: у назві кандидата є ІНШИЙ впізнаваний колір, якого
+  // немає в запиті — майже завжди означає інший варіант товару.
+  const qColors = qTokens.filter(t => COLOR_WORDS.has(t));
+  const tColors = tTokensArr.filter(t => COLOR_WORDS.has(t));
+  if (qColors.length > 0 && tColors.length > 0 && !tColors.some(c => qColors.includes(c))) {
+    score *= 0.3;
+  }
+
+  // Конфлікт лінійки моделі: Air/Pro/Max/... присутній лише з одного боку —
+  // це, як правило, інша модель (напр. iPad проти iPad Air).
+  const qMods = new Set(qTokens.filter(t => LINE_MODIFIERS.has(t)));
+  const tMods = new Set(tTokensArr.filter(t => LINE_MODIFIERS.has(t)));
+  let modMismatch = false;
+  for (const m of tMods) if (!qMods.has(m)) modMismatch = true;
+  for (const m of qMods) if (!tMods.has(m)) modMismatch = true;
+  if (modMismatch) score *= 0.3;
+
+  return score;
 }
 
 export const MATCH_THRESHOLD = 0.6; // мін. частка токенів запиту, які мають збігтись
