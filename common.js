@@ -62,7 +62,20 @@ let browserPromise = null;
 export async function getBrowser() {
   if (!browserPromise) {
     const puppeteer = await import('puppeteer');
-    const args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'];
+    // Мінімізуємо пам'ять Chrome — сервер на 512MB-1GB RAM падав по OOM
+    // при рендері важких сторінок (перевірено в проді: Render логи
+    // показували "Instance restarted" кожні кілька хвилин під час
+    // Jabko/Yablyka скрапу). Ці прапори вимикають усе непотрібне для
+    // headless-парсингу (GPU, розширення, фонову синхронізацію тощо).
+    const args = [
+      '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+      '--disable-gpu', '--disable-extensions', '--disable-background-networking',
+      '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows',
+      '--disable-breakpad', '--disable-component-extensions-with-background-pages',
+      '--disable-default-apps', '--disable-sync', '--disable-translate',
+      '--metrics-recording-only', '--mute-audio', '--no-first-run',
+      '--safebrowsing-disable-auto-update', '--disable-software-rasterizer',
+    ];
     if (proxyConfig) args.push(`--proxy-server=${proxyConfig.hostPort}`);
     browserPromise = puppeteer.default.launch({ headless: true, args });
   }
@@ -82,7 +95,7 @@ export async function closeBrowser() {
 // сторінок можуть вивалити процес по пам'яті (спостерігалось на практиці:
 // сервер падав і рестартувався під час одночасного скрапу 6 магазинів).
 // Обмежуємо максимум одночасних сторінок і чергуємо решту.
-const MAX_CONCURRENT_PUPPETEER = 2;
+const MAX_CONCURRENT_PUPPETEER = 1;
 let activePuppeteer = 0;
 const puppeteerQueue = [];
 
@@ -340,6 +353,8 @@ export function pickBest(candidates, query) {
   return null;
 }
 
+const BLOCKED_RESOURCE_TYPES = new Set(['image', 'media', 'font', 'stylesheet']);
+
 export async function withPuppeteerPage(fn) {
   const browser = await getBrowser();
   const page = await browser.newPage();
@@ -348,7 +363,16 @@ export async function withPuppeteerPage(fn) {
       await page.authenticate({ username: proxyConfig.username, password: proxyConfig.password });
     }
     await page.setUserAgent(UA);
-    await page.setViewport({ width: 1366, height: 900 });
+    // Менший viewport + блокування картинок/шрифтів/стилів — нам потрібен
+    // лише текст (назва товару + ціна) з відрендереної сторінки, не її
+    // вигляд. Це суттєво знижує пам'ять на сторінку (перевірено: саме
+    // рендер важких сторінок з картинками валив процес по OOM на Render).
+    await page.setViewport({ width: 1024, height: 720 });
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      if (BLOCKED_RESOURCE_TYPES.has(req.resourceType())) req.abort().catch(() => {});
+      else req.continue().catch(() => {});
+    });
     page.setDefaultNavigationTimeout(PUPPETEER_NAV_TIMEOUT_MS);
     return await fn(page);
   } finally {
