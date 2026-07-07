@@ -233,17 +233,18 @@ export function extractCandidatesCheerio($, baseUrl, opts = {}) {
     if (!href) return;
 
     // Шукаємо ціну в найближчому "контейнері картки" — до 4 рівнів вгору.
-    // Обмежуємо довжину тексту контейнера (500 симв.) — інакше на компактних
-    // HTML-фрагментах (напр. AJAX-відповідь пошуку) можна "проскочити" на
-    // рівень, що обгортає весь список товарів, і підхопити ціну зовсім
-    // іншого, не пов'язаного товару (перевірено на практиці — GRO).
+    // Обмежуємо довжину тексту контейнера (1200 симв.) — інакше на
+    // компактних HTML-фрагментах (напр. AJAX-відповідь пошуку) можна
+    // "проскочити" на рівень, що обгортає весь список товарів, і підхопити
+    // ціну зовсім іншого, не пов'язаного товару (перевірено на практиці —
+    // GRO: рівень "картки" ~500 симв., рівень "усього списку" вже 4000+).
     let $container = $a;
     let priceText = '';
     for (let i = 0; i < 4 && priceText === ''; i++) {
       $container = $container.parent();
       if ($container.length === 0) break;
       const t = $container.text();
-      if (t.length > 500) break;
+      if (t.length > 1200) break;
       PRICE_RE.lastIndex = 0;
       if (PRICE_RE.test(t)) priceText = t;
     }
@@ -297,7 +298,7 @@ export async function extractCandidatesPuppeteer(page, opts = {}) {
         container = container.parentElement;
         if (!container) break;
         const t = container.textContent || '';
-        if (t.length > 500) break;
+        if (t.length > 1200) break;
         PRICE_RE.lastIndex = 0;
         if (PRICE_RE.test(t)) priceText = t;
       }
