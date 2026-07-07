@@ -1,4 +1,4 @@
-import { rawFetch, buildSearchQuery, scoreMatch, MATCH_THRESHOLD } from './common.js';
+import { rawFetch, buildSearchQuery, scoreMatch, MATCH_THRESHOLD, isAccessoryTitle } from './common.js';
 
 // JustBuy (justbuy.com.ua) — Next.js-фронтенд, видача пошуку рендериться
 // клієнтським JS, тож у сирому HTML цін немає. Але сайт ходить у власний
@@ -25,11 +25,13 @@ export async function scrapeJustBuy(product) {
     const json = await res.json();
     const items = json?.responseData?.products?.data || [];
 
+    const queryIsAccessory = isAccessoryTitle(query);
     let best = null;
     let bestScore = 0;
     for (const p of items) {
       const title = p?.nameI18n?.ua || p?.nameI18n?.ru || p?.nameI18n?.en || '';
-      const s = scoreMatch(query, title);
+      let s = scoreMatch(query, title);
+      if (!queryIsAccessory && isAccessoryTitle(title)) s *= 0.5;
       if (s > bestScore) {
         bestScore = s;
         best = {

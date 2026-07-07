@@ -194,6 +194,17 @@ function tokenize(s) {
     .filter(w => w.length > 1);
 }
 
+// Слова-маркери аксесуарів — товар з такою назвою (чохол/плівка/кабель для
+// X) часто набирає такий самий token-збіг, як і сам товар X (усі слова
+// запиту присутні), і без цієї перевірки міг переважити справжній товар
+// (перевірено на практиці: "Чохли для AirPods Pro 3" замість самих
+// навушників). Занижуємо такі кандидати, якщо сам запит не про аксесуар.
+const ACCESSORY_RE = /^(чохол|чохли|плівка|скло|захисне|кабель|адаптер|зарядн|підставка|тримач|ремінець|ремінці|стрічка|кейс|сумка|бампер|перехідник|заряд[а-я]*\s*пристрій)\b/i;
+
+export function isAccessoryTitle(title) {
+  return ACCESSORY_RE.test((title || '').trim());
+}
+
 // Проста оцінка збігу: частка токенів запиту, які знайшлись у назві кандидата.
 export function scoreMatch(query, title) {
   const qTokens = tokenize(query);
@@ -222,12 +233,17 @@ export function extractCandidatesCheerio($, baseUrl, opts = {}) {
     if (!href) return;
 
     // Шукаємо ціну в найближчому "контейнері картки" — до 4 рівнів вгору.
+    // Обмежуємо довжину тексту контейнера (500 симв.) — інакше на компактних
+    // HTML-фрагментах (напр. AJAX-відповідь пошуку) можна "проскочити" на
+    // рівень, що обгортає весь список товарів, і підхопити ціну зовсім
+    // іншого, не пов'язаного товару (перевірено на практиці — GRO).
     let $container = $a;
     let priceText = '';
     for (let i = 0; i < 4 && priceText === ''; i++) {
       $container = $container.parent();
       if ($container.length === 0) break;
       const t = $container.text();
+      if (t.length > 500) break;
       PRICE_RE.lastIndex = 0;
       if (PRICE_RE.test(t)) priceText = t;
     }
@@ -281,6 +297,7 @@ export async function extractCandidatesPuppeteer(page, opts = {}) {
         container = container.parentElement;
         if (!container) break;
         const t = container.textContent || '';
+        if (t.length > 500) break;
         PRICE_RE.lastIndex = 0;
         if (PRICE_RE.test(t)) priceText = t;
       }
@@ -299,10 +316,15 @@ export async function extractCandidatesPuppeteer(page, opts = {}) {
 }
 
 export function pickBest(candidates, query) {
+  const queryIsAccessory = isAccessoryTitle(query);
   let best = null;
   let bestScore = 0;
   for (const c of candidates) {
-    const s = scoreMatch(query, c.title);
+    let s = scoreMatch(query, c.title);
+    // Якщо запит НЕ про аксесуар, а кандидат виглядає як аксесуар (чохол,
+    // плівка тощо) — занижуємо його бал, щоб справжній товар (за рівного
+    // token-збігу) мав перевагу. Без цього "Чохли для X" легко переграє X.
+    if (!queryIsAccessory && isAccessoryTitle(c.title)) s *= 0.5;
     if (s > bestScore) { bestScore = s; best = c; }
   }
   if (best && bestScore >= MATCH_THRESHOLD) return { ...best, score: bestScore };
