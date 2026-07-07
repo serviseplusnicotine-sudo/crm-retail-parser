@@ -15,6 +15,8 @@ import express from 'express';
 import cors from 'cors';
 import { SCRAPERS, PARSED_STORE_NAMES } from './registry.js';
 import { closeBrowser } from './common.js';
+import { saveProducts, loadPriceCache } from './store.js';
+import { startPriceCron, runNightlyUpdate } from './cron.js';
 
 const app = express();
 app.use(cors());
@@ -62,6 +64,37 @@ app.post('/api/retail-prices', async (req, res) => {
 
   res.json({ results });
 });
+
+// POST /api/products/sync
+// body: { products: [{ id, name, model, tags }] }
+// Фронтенд викликає це при відкритті CRM (і після змін у товарах), щоб
+// сервер знав, які товари перевіряти вночі (див. cron.js). Дані самих
+// товарів (ціни закупки, постачальники тощо) сюди НЕ передаються — лише
+// мінімум, потрібний для пошуку в магазинах.
+app.post('/api/products/sync', (req, res) => {
+  const { products } = req.body || {};
+  if (!Array.isArray(products)) {
+    return res.status(400).json({ error: 'Потрібно передати products: []' });
+  }
+  saveProducts(products);
+  res.json({ ok: true, count: products.length });
+});
+
+// GET /api/products/prices -> { prices: { [productId]: { results: RetailStore[], updatedAt } } }
+// Фронтенд тягне це при відкритті CRM, щоб одразу показати ціни з
+// останнього нічного оновлення — без кліку на "Оновити ціни".
+app.get('/api/products/prices', (_req, res) => {
+  res.json({ prices: loadPriceCache() });
+});
+
+// POST /api/products/refresh-now — ручний тригер нічного оновлення (напр.
+// для перевірки одразу після деплою, не чекаючи розкладу).
+app.post('/api/products/refresh-now', (_req, res) => {
+  runNightlyUpdate().catch((e) => console.error('[retail-parser] refresh-now впав:', e));
+  res.json({ ok: true, message: 'Оновлення запущено у фоні, дивись логи' });
+});
+
+startPriceCron();
 
 const server = app.listen(PORT, () => {
   console.log(`[retail-parser] сервер запущено на http://localhost:${PORT}`);
