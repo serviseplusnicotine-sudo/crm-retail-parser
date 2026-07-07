@@ -157,11 +157,17 @@ export async function fetchHtml(url) {
 // Знаходить усі "грн-подібні" числа у шматку тексту: "65 999 ₴", "65999грн", "65 999 UAH"
 const PRICE_RE = /(\d[\d\s ]{1,7})\s*(?:₴|грн\.?|uah)/gi;
 
+// "111 ₴ кешбеку" поруч із реальною ціною — Math.min() нижче раніше вибирав
+// саме кешбек/бонус як "найменшу ціну" (перевірено на практиці — Yablyka).
+// Прибираємо такі згадки з тексту ДО пошуку цін.
+const CASHBACK_STRIP_RE = /\d[\d\s ]{0,7}\s?(?:₴|грн\.?|uah)\s*(?:кешбек|кэшбек|бонус|cashback)[а-яіїєa-z]*/gi;
+
 export function extractPrices(text) {
+  const cleaned = text.replace(CASHBACK_STRIP_RE, ' ');
   const out = [];
   let m;
   PRICE_RE.lastIndex = 0;
-  while ((m = PRICE_RE.exec(text))) {
+  while ((m = PRICE_RE.exec(cleaned))) {
     const n = parseInt(m[1].replace(/[\s ]/g, ''), 10);
     if (n && n > 50 && n < 3_000_000) out.push(n);
   }
@@ -275,11 +281,13 @@ export async function extractCandidatesPuppeteer(page, opts = {}) {
   const maxCandidates = opts.maxCandidates ?? 400;
   return page.evaluate((maxCandidates) => {
     const PRICE_RE = /(\d[\d\s ]{1,7})\s*(?:₴|грн\.?|uah)/gi;
+    const CASHBACK_STRIP_RE = /\d[\d\s ]{0,7}\s?(?:₴|грн\.?|uah)\s*(?:кешбек|кэшбек|бонус|cashback)[а-яіїєa-z]*/gi;
     const OUT_RE = /немає в наявн|нет в наличии|під замовлення|очікується|out of stock|товар закінчився|тимчасово відсутн/i;
     function extractPrices(text) {
+      const cleaned = text.replace(CASHBACK_STRIP_RE, ' ');
       const out = [];
       let m; PRICE_RE.lastIndex = 0;
-      while ((m = PRICE_RE.exec(text))) {
+      while ((m = PRICE_RE.exec(cleaned))) {
         const n = parseInt(m[1].replace(/[\s ]/g, ''), 10);
         if (n && n > 50 && n < 3000000) out.push(n);
       }
