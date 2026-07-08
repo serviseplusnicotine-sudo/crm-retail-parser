@@ -20,7 +20,13 @@ import { startPriceCron, runNightlyUpdate, isNightlyUpdateRunning } from './cron
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+// Дефолтний ліміт express.json() — 100kb. При ~1095 товарах у каталозі
+// Ігоря POST /api/products/sync важить ~195kb і мовчки падав з 413 Payload
+// Too Large — тобто сервер ФАКТИЧНО НІКОЛИ не отримував список товарів
+// для нічного скану, і кеш цін залишався порожнім незалежно від крону чи
+// його швидкості. Це, найімовірніше, і була справжня причина "на сервері
+// нихуя не кешується".
+app.use(express.json({ limit: '10mb' }));
 
 const PORT = process.env.PORT || 4000;
 
