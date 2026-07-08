@@ -559,24 +559,36 @@ export async function scrapeStore(config, product) {
   const updated = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} · ${now.toLocaleDateString('uk-UA')}`;
 
   // 1) швидкий шлях — plain fetch + cheerio
+  // ВАЖЛИВО: для магазинів зі config.skipCheerioFetch=true цей крок
+  // повністю пропускаємо. Причина (виявлено на прикладі Yablyka/ya.ua):
+  // сайт — Next.js застосунок зі стрімінговим SSR (React Server
+  // Components). Сирий HTML, який бачить plain fetch (без виконання JS),
+  // це лише початкова "оболонка" сторінки — на ній вже може бути видно
+  // суму кешбеку, але фінальна ціна довантажується/дорендерюється пізніше
+  // через стрімінг і в статичному HTML її просто немає. Через це
+  // cheerio-шлях знаходив "збіг" і одразу повертав його — з ціною кешбеку
+  // (напр. 238₴) замість реальної (23 816₴) — і Puppeteer-фолбек нижче
+  // взагалі не встигав спрацювати, бо ми виходили з функції раніше.
   let fetchFailed = false;
-  for (const query of queries) {
-    try {
-      const url = config.searchUrl(query);
-      const html = await fetchHtml(url);
-      const $ = cheerio.load(html);
-      const candidates = extractCandidatesCheerio($, url);
-      const best = pickBest(candidates, query);
-      if (best) {
-        return {
-          store: config.name, price: best.price, available: best.available,
-          updated, status: 'ok', url: best.url, matchedTitle: best.title,
-        };
+  if (!config.skipCheerioFetch) {
+    for (const query of queries) {
+      try {
+        const url = config.searchUrl(query);
+        const html = await fetchHtml(url);
+        const $ = cheerio.load(html);
+        const candidates = extractCandidatesCheerio($, url);
+        const best = pickBest(candidates, query);
+        if (best) {
+          return {
+            store: config.name, price: best.price, available: best.available,
+            updated, status: 'ok', url: best.url, matchedTitle: best.title,
+          };
+        }
+      } catch (e) {
+        console.error(`[retail-parser] ${config.name} fetch-шлях впав: ${e instanceof Error ? e.message : e}`);
+        fetchFailed = true;
+        break; // сама сторінка/мережа впала — коротші запити цього не виправлять
       }
-    } catch (e) {
-      console.error(`[retail-parser] ${config.name} fetch-шлях впав: ${e instanceof Error ? e.message : e}`);
-      fetchFailed = true;
-      break; // сама сторінка/мережа впала — коротші запити цього не виправлять
     }
   }
   void fetchFailed;

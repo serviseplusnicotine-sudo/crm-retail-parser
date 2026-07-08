@@ -8,6 +8,12 @@ const config = {
   name: 'Yablyka',
   baseUrl: 'https://ya.ua/',
   searchUrl: (q) => `https://ya.ua/search?productQuery=${encodeURIComponent(q)}&page=1`,
+  // ya.ua — Next.js зі стрімінговим SSR: сирий HTML (без виконання JS)
+  // може містити лише суму кешбеку, а не фінальну ціну — вона
+  // довантажується пізніше. Тому швидкий fetch/cheerio-шлях для цього
+  // магазину пропускаємо і одразу йдемо через Puppeteer, який чекає
+  // повного дорендеру сторінки.
+  skipCheerioFetch: true,
 };
 
 export function scrapeYablyka(product) {
