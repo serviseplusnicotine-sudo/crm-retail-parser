@@ -199,6 +199,17 @@ export function buildSearchQuery(product) {
   if (product.tags?.color && !base.toLowerCase().includes(product.tags.color.toLowerCase())) parts.push(product.tags.color);
   let q = parts.join(' ')
     .replace(/\b(EU|DE|DACH|INDIA|US|QLA)\b/gi, '')
+    // Постачальницькі "пакувальні" фрази (форм-фактор/комплектація) —
+    // описують не сам товар, а його упаковку, і практично ніколи не
+    // з'являються в назвах магазинів. Перевірено на практиці: "Apple
+    // AirPods 4 USB-C Charging Case w/ ANC In-Ear Headphones White" не
+    // знаходився НІДЕ (JustBuy/GRO — "не знайдено", хоча товар в
+    // наявності), бо ці 4 зайвих слова різко занижували частку збігу
+    // токенів. Прибираємо їх ДО побудови запиту.
+    .replace(/\bin-ear\s+headphones?\b/gi, '')
+    .replace(/\bheadphones?\b/gi, '')
+    .replace(/\bcharging\s+case\b/gi, '')
+    .replace(/\bw\/\s*/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return q;
@@ -214,6 +225,11 @@ function tokenize(s) {
   // однозначні ЦИФРИ лишаємо навіть при довжині 1.
   return (s || '')
     .toLowerCase()
+    // "Active Noise Cancellation" (магазини пишуть повністю) vs "ANC"
+    // (постачальник пише скорочено в каталозі) — без нормалізації це два
+    // геть різних набори токенів, і жодна сторона не бачить збігу за цією
+    // єдиною ознакою, що відрізняє звичайні AirPods 4 від версії з ANC.
+    .replace(/active\s+noise\s+cancellation/g, 'anc')
     .replace(/["'()]/g, ' ')
     .split(/[\s,/]+/)
     .filter(w => w.length > 1 || /\d/.test(w));
@@ -250,7 +266,7 @@ const COLOR_WORDS = new Set([
   'lilac', 'graygreen', 'transparent', 'teal', 'sage', 'midnight', 'starlight', 'ultramarine',
 ]);
 const LINE_MODIFIERS = new Set([
-  'air', 'pro', 'max', 'ultra', 'plus', 'mini', 'se', 'fe', 'lite', 'note', 'fold', 'flip', 'classic', 'active',
+  'air', 'pro', 'max', 'ultra', 'plus', 'mini', 'se', 'fe', 'lite', 'note', 'fold', 'flip', 'classic', 'active', 'anc',
 ]);
 
 // Проста оцінка збігу: частка токенів запиту, які знайшлись у назві
