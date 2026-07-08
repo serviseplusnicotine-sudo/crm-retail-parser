@@ -313,6 +313,11 @@ const COLOR_WORDS = new Set([
 ]);
 const LINE_MODIFIERS = new Set([
   'air', 'pro', 'max', 'ultra', 'plus', 'mini', 'se', 'fe', 'lite', 'note', 'fold', 'flip', 'classic', 'active', 'anc',
+  // Ігрові консолі: Disc/Digital — принципово різні SKU (з приводом чи
+  // без) за дуже схожою рештою назви, легко переплутати (виявлено на
+  // прикладі PS5 SLIM — запит "...Disc..." збігався з "...Digital
+  // Edition..." без жодного штрафу).
+  'disc', 'digital',
 ]);
 
 // Проста оцінка збігу: частка токенів запиту, які знайшлись у назві
