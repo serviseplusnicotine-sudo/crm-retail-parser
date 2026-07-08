@@ -231,6 +231,19 @@ export function buildQueryVariants(product) {
     const v = words.slice(0, n).join(' ');
     if (!variants.includes(v)) variants.push(v);
   }
+  // Обрізаємо ще й з ПОЧАТКУ рядка (не лише з кінця, як вище) — виявлено
+  // на практиці на прикладі "Ps5 PlayStation VR2": "Ps5" тут у назві з
+  // каталогу — це щось на кшталт категорійного префіксу (консоль/платформа),
+  // а не частина реальної назви товару на сайті магазину (GRO продає його
+  // просто як "Sony PlayStation VR2..."). Пошук GRO на "Ps5 PlayStation
+  // VR2" повертає 0 результатів (і жоден із варіантів вище цього не
+  // виправляє, бо вони лише коротшають з кінця й перше слово лишається),
+  // а на "PlayStation VR2" (без "Ps5") — знаходить одразу. Пробуємо
+  // відкинути перше слово як окремий, останній за пріоритетом варіант.
+  if (words.length >= 3) {
+    const dropFirst = words.slice(1).join(' ');
+    if (!variants.includes(dropFirst)) variants.push(dropFirst);
+  }
   return variants;
 }
 

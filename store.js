@@ -56,9 +56,33 @@ function savePriceCache(cache) {
   fs.writeFileSync(PRICES_FILE, JSON.stringify(cache), 'utf8');
 }
 
+const MAX_HISTORY_POINTS = 60;
+
 // results: RetailStore[] (з common.js/scrapeStore)
+// Крім останніх результатів, ведемо легкий щоденний "зріз" мінімальної
+// доступної роздрібної ціни — це і є реальні дані для колонки "7-д тренд"
+// (для товарів з живого Google Sheets раніше взагалі не було жодної
+// історії цін, тому тренд завжди був порожній — genPriceHistory() існував
+// лише в демо-каталозі). Один запис на календарний день: повторні виклики
+// того ж дня перезаписують сьогоднішній запис, а не плодять дублі.
 export function updatePriceCacheForProduct(productId, results) {
   const cache = loadPriceCache();
-  cache[productId] = { results, updatedAt: new Date().toISOString() };
+  const prev = cache[productId];
+  const history = Array.isArray(prev?.history) ? prev.history.slice() : [];
+
+  const availablePrices = (results || [])
+    .filter(r => r && r.available && typeof r.price === 'number' && r.price > 0)
+    .map(r => r.price);
+  const minPrice = availablePrices.length > 0 ? Math.min(...availablePrices) : null;
+
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  if (minPrice !== null) {
+    const todayIdx = history.findIndex(h => h.date === today);
+    if (todayIdx >= 0) history[todayIdx] = { date: today, price: minPrice };
+    else history.push({ date: today, price: minPrice });
+  }
+  while (history.length > MAX_HISTORY_POINTS) history.shift();
+
+  cache[productId] = { results, updatedAt: new Date().toISOString(), history };
   savePriceCache(cache);
 }

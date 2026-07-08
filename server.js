@@ -16,7 +16,7 @@ import cors from 'cors';
 import { SCRAPERS, PARSED_STORE_NAMES } from './registry.js';
 import { closeBrowser } from './common.js';
 import { saveProducts, loadPriceCache } from './store.js';
-import { startPriceCron, runNightlyUpdate } from './cron.js';
+import { startPriceCron, runNightlyUpdate, isNightlyUpdateRunning } from './cron.js';
 
 const app = express();
 app.use(cors());
@@ -78,6 +78,20 @@ app.post('/api/products/sync', (req, res) => {
   }
   saveProducts(products);
   res.json({ ok: true, count: products.length });
+
+  // Автопідігрів кешу цін: якщо після синку каталогу помітна частина
+  // товарів ще не має жодного запису в кеші (типово — щойно після
+  // деплою, коли диск обнулився, див. store.js), одразу запускаємо фонове
+  // оновлення, не чекаючи нічного розкладу. Інакше "Роздріб" у таблиці
+  // лишається порожнім, поки хтось вручну не відкриє кожну картку.
+  if (!isNightlyUpdateRunning()) {
+    const cache = loadPriceCache();
+    const missing = products.filter(p => !cache[p.id]).length;
+    if (products.length > 0 && missing / products.length > 0.2) {
+      console.log(`[retail-parser] кеш цін неповний (${missing}/${products.length} без запису) — запускаю автопідігрів у фоні`);
+      runNightlyUpdate().catch((e) => console.error('[retail-parser] автопідігрів впав:', e));
+    }
+  }
 });
 
 // GET /api/products/prices -> { prices: { [productId]: { results: RetailStore[], updatedAt } } }
