@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import { rawFetch, collectCookies, buildSearchQuery, extractCandidatesCheerio, pickBest } from './common.js';
+import { rawFetch, collectCookies, buildQueryVariants, extractCandidatesCheerio, pickBest } from './common.js';
 
 // GRO / ex Grokholsky (grokholsky.com) — Yii2-застосунок. Видача пошуку
 // живе за адресою /ua/site/search/ (POST, form-encoded { _csrf, q }),
@@ -36,20 +36,26 @@ async function fetchSearchHtml(query) {
 }
 
 export async function scrapeGRO(product) {
-  const query = buildSearchQuery(product);
+  // GRO має крихкий пошук — задовгий запит (багато уточнень) часто
+  // повертає 0 результатів навіть коли товар є в каталозі (перевірено на
+  // практиці: "Apple AirPods 4 USB-C ANC White" -> 0, "Apple AirPods 4"
+  // -> 2). Тому пробуємо запити від найповнішого до найкоротшого.
+  const queries = buildQueryVariants(product);
   const now = new Date();
   const updated = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} · ${now.toLocaleDateString('uk-UA')}`;
 
   try {
-    const html = await fetchSearchHtml(query);
-    const $ = cheerio.load(html);
-    const candidates = extractCandidatesCheerio($, BASE);
-    const best = pickBest(candidates, query);
-    if (best) {
-      return {
-        store: 'GRO', price: best.price, available: best.available,
-        updated, status: 'ok', url: best.url, matchedTitle: best.title,
-      };
+    for (const query of queries) {
+      const html = await fetchSearchHtml(query);
+      const $ = cheerio.load(html);
+      const candidates = extractCandidatesCheerio($, BASE);
+      const best = pickBest(candidates, query);
+      if (best) {
+        return {
+          store: 'GRO', price: best.price, available: best.available,
+          updated, status: 'ok', url: best.url, matchedTitle: best.title,
+        };
+      }
     }
     return { store: 'GRO', price: 0, available: false, updated, status: 'no-product' };
   } catch (e) {

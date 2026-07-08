@@ -1,4 +1,4 @@
-import { rawFetch, buildSearchQuery, scoreMatch, MATCH_THRESHOLD, isAccessoryTitle } from './common.js';
+import { rawFetch, buildQueryVariants, scoreMatch, MATCH_THRESHOLD, isAccessoryTitle } from './common.js';
 
 // JustBuy (justbuy.com.ua) — Next.js-фронтенд, видача пошуку рендериться
 // клієнтським JS, тож у сирому HTML цін немає. Але сайт ходить у власний
@@ -11,42 +11,47 @@ const API_URL = 'https://api.justbuy.com.ua/global-search/content';
 const SEARCH_PAGE = (q) => `https://justbuy.com.ua/ua/search?q=${encodeURIComponent(q)}`;
 
 export async function scrapeJustBuy(product) {
-  const query = buildSearchQuery(product);
+  // Пробуємо запит від найповнішого до найкоротшого — на випадок, якщо
+  // API JustBuy теж не любить задовгі запити (той самий підхід, що й
+  // для GRO, де це підтверджено на практиці).
+  const queries = buildQueryVariants(product);
   const now = new Date();
   const updated = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} · ${now.toLocaleDateString('uk-UA')}`;
 
   try {
-    const res = await rawFetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query }),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json = await res.json();
-    const items = json?.responseData?.products?.data || [];
+    for (const query of queries) {
+      const res = await rawFetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      const items = json?.responseData?.products?.data || [];
 
-    const queryIsAccessory = isAccessoryTitle(query);
-    let best = null;
-    let bestScore = 0;
-    for (const p of items) {
-      const title = p?.nameI18n?.ua || p?.nameI18n?.ru || p?.nameI18n?.en || '';
-      let s = scoreMatch(query, title);
-      if (!queryIsAccessory && isAccessoryTitle(title)) s *= 0.5;
-      if (s > bestScore) {
-        bestScore = s;
-        best = {
-          title,
-          price: p.price,
-          available: p.availabilityStatus === 'IN_STOCK',
+      const queryIsAccessory = isAccessoryTitle(query);
+      let best = null;
+      let bestScore = 0;
+      for (const p of items) {
+        const title = p?.nameI18n?.ua || p?.nameI18n?.ru || p?.nameI18n?.en || '';
+        let s = scoreMatch(query, title);
+        if (!queryIsAccessory && isAccessoryTitle(title)) s *= 0.5;
+        if (s > bestScore) {
+          bestScore = s;
+          best = {
+            title,
+            price: p.price,
+            available: p.availabilityStatus === 'IN_STOCK',
+          };
+        }
+      }
+
+      if (best && bestScore >= MATCH_THRESHOLD) {
+        return {
+          store: 'JustBuy', price: best.price, available: best.available,
+          updated, status: 'ok', url: SEARCH_PAGE(query), matchedTitle: best.title,
         };
       }
-    }
-
-    if (best && bestScore >= MATCH_THRESHOLD) {
-      return {
-        store: 'JustBuy', price: best.price, available: best.available,
-        updated, status: 'ok', url: SEARCH_PAGE(query), matchedTitle: best.title,
-      };
     }
     return { store: 'JustBuy', price: 0, available: false, updated, status: 'no-product' };
   } catch (e) {

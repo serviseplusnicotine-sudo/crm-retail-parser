@@ -215,6 +215,25 @@ export function buildSearchQuery(product) {
   return q;
 }
 
+// Деякі магазини мають "крихкий" пошук — не наш ratio-скоринг, а сам
+// пошуковий рушник сайту повертає 0 кандидатів, якщо запит задовгий чи
+// містить занадто багато уточнень. Перевірено на практиці (GRO,
+// grokholsky.com): "Apple AirPods 4 USB-C ANC White" -> 0 результатів,
+// "Apple AirPods 4" -> 2 результати. Тому пробуємо запит від
+// найповнішого до дедалі коротшого (відкидаючи слова з кінця — туди
+// зазвичай потрапляють уточнення на кшталт кольору), лишаючи щонайменше
+// 3 слова (як правило бренд + лінійка + номер моделі).
+export function buildQueryVariants(product) {
+  const full = buildSearchQuery(product);
+  const words = full.split(' ').filter(Boolean);
+  const variants = [full];
+  for (let n = words.length - 1; n >= 3; n--) {
+    const v = words.slice(0, n).join(' ');
+    if (!variants.includes(v)) variants.push(v);
+  }
+  return variants;
+}
+
 function tokenize(s) {
   // w.length > 1 відсіює однобуквений "сміттєвий" залишок пунктуації, АЛЕ
   // так само зрізав однозначні числа-розрізнювачі моделі ("AirPods 4",
@@ -511,26 +530,36 @@ export async function typeIntoSiteSearch(page, query) {
 //
 // Повертає { store, price, available, updated, status, url?, matchedTitle? }
 export async function scrapeStore(config, product) {
-  const query = buildSearchQuery(product);
+  // Пробуємо кілька варіантів запиту (повний -> дедалі коротший) — деякі
+  // сайти мають крихкий пошук, що повертає 0 кандидатів на задовгий
+  // запит (перевірено на практиці, GRO). Fetch-крок дешевий, тож пробуємо
+  // всі варіанти; Puppeteer — важкий, тож там лише повний і найкоротший.
+  const queries = buildQueryVariants(product);
   const now = new Date();
   const updated = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} · ${now.toLocaleDateString('uk-UA')}`;
 
   // 1) швидкий шлях — plain fetch + cheerio
-  try {
-    const url = config.searchUrl(query);
-    const html = await fetchHtml(url);
-    const $ = cheerio.load(html);
-    const candidates = extractCandidatesCheerio($, url);
-    const best = pickBest(candidates, query);
-    if (best) {
-      return {
-        store: config.name, price: best.price, available: best.available,
-        updated, status: 'ok', url: best.url, matchedTitle: best.title,
-      };
+  let fetchFailed = false;
+  for (const query of queries) {
+    try {
+      const url = config.searchUrl(query);
+      const html = await fetchHtml(url);
+      const $ = cheerio.load(html);
+      const candidates = extractCandidatesCheerio($, url);
+      const best = pickBest(candidates, query);
+      if (best) {
+        return {
+          store: config.name, price: best.price, available: best.available,
+          updated, status: 'ok', url: best.url, matchedTitle: best.title,
+        };
+      }
+    } catch (e) {
+      console.error(`[retail-parser] ${config.name} fetch-шлях впав: ${e instanceof Error ? e.message : e}`);
+      fetchFailed = true;
+      break; // сама сторінка/мережа впала — коротші запити цього не виправлять
     }
-  } catch (e) {
-    console.error(`[retail-parser] ${config.name} fetch-шлях впав: ${e instanceof Error ? e.message : e}`);
   }
+  void fetchFailed;
 
   // 2) fallback — headless-браузер із набором тексту у пошук сайту
   if (config.usePuppeteerFallback !== false) {
@@ -540,19 +569,24 @@ export async function scrapeStore(config, product) {
         error: 'Заблоковано за IP хостингу — потрібен проксі (PROXY_URL)',
       };
     }
+    // Не мультиплікуємо важкі Puppeteer-спроби на всі варіанти запиту —
+    // лише повний і найкоротший (base), щоб не роздувати час скрапу.
+    const puppeteerQueries = queries.length > 1 ? [queries[0], queries[queries.length - 1]] : queries;
     try {
-      const result = await withPuppeteerPageLimited(async (page) => {
-        await page.goto(config.baseUrl, { waitUntil: 'domcontentloaded' });
-        const typed = await typeIntoSiteSearch(page, query);
-        if (!typed) return null;
-        const candidates = await extractCandidatesPuppeteer(page);
-        return pickBest(candidates, query);
-      });
-      if (result) {
-        return {
-          store: config.name, price: result.price, available: result.available,
-          updated, status: 'ok', url: result.url, matchedTitle: result.title,
-        };
+      for (const query of puppeteerQueries) {
+        const result = await withPuppeteerPageLimited(async (page) => {
+          await page.goto(config.baseUrl, { waitUntil: 'domcontentloaded' });
+          const typed = await typeIntoSiteSearch(page, query);
+          if (!typed) return null;
+          const candidates = await extractCandidatesPuppeteer(page);
+          return pickBest(candidates, query);
+        });
+        if (result) {
+          return {
+            store: config.name, price: result.price, available: result.available,
+            updated, status: 'ok', url: result.url, matchedTitle: result.title,
+          };
+        }
       }
       return { store: config.name, price: 0, available: false, updated, status: 'no-product' };
     } catch (e) {
