@@ -1,20 +1,24 @@
 // Просте файлове сховище на диску сервера — щоб нічний крон (cron.js) знав
 // які товари перевіряти і куди складати результат, без окремої СУБД.
 //
-// ВАЖЛИВО (Render free/starter): диск НЕ persistent між деплоями — при
-// кожному новому деплої (пуш коду) ці файли обнуляться, і фронтенду
-// доведеться заново зробити /api/products/sync (робиться автоматично при
-// відкритті CRM, див. AppContext.tsx). Дані живуть, поки сервер просто
-// працює і рестартиться сам собою — це нормально для щоденного крону.
+// Persistent disk: на Render підключено окремий SSD-диск, змонтований у
+// /var/data (Disk tab у дашборді сервісу). Тільки файли під цим шляхом
+// переживають деплой — усе інше на диску сервісу обнуляється при кожному
+// пуші коду. Тому пишемо кеш саме туди, а не в папку поруч з кодом.
+// Локально (npm run dev) /var/data не існує — тоді падаємо назад на data/
+// поруч зі server.js, як і раніше.
+const RENDER_DISK_PATH = '/var/data';
 
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.DATA_DIR
+  || (fs.existsSync(RENDER_DISK_PATH) ? RENDER_DISK_PATH : path.join(__dirname, 'data'));
 const PRODUCTS_FILE = path.join(DATA_DIR, 'products.json');
 const PRICES_FILE = path.join(DATA_DIR, 'prices.json');
+console.log(`[retail-parser] кеш товарів/цін зберігається у ${DATA_DIR}${DATA_DIR === RENDER_DISK_PATH ? ' (persistent disk)' : ' (тимчасово, не переживе деплой)'}`);
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
