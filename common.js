@@ -342,6 +342,13 @@ export function extractCandidatesCheerio($, baseUrl, opts = {}) {
     // "проскочити" на рівень, що обгортає весь список товарів, і підхопити
     // ціну зовсім іншого, не пов'язаного товару (перевірено на практиці —
     // GRO: рівень "картки" ~500 симв., рівень "усього списку" вже 4000+).
+    // ВАЖЛИВО: перевіряємо наявність ціни через extractPrices() (з
+    // відсіюванням кешбеку), а не сирий PRICE_RE.test() — інакше
+    // контейнер, де видно ЛИШЕ суму кешбеку ("238 ₴ кешбек"), а справжня
+    // ціна ще не потрапила у виділений фрагмент/не відрендерилась,
+    // помилково вважається "ціну знайдено", і Math.min() нижче забирає
+    // кешбек замість реальної ціни (перевірено на практиці — Yablyka,
+    // Garmin Instinct 3: кешбек 238 ₴ замість ціни 23 816 ₴).
     let $container = $a;
     let priceText = '';
     for (let i = 0; i < 4 && priceText === ''; i++) {
@@ -349,8 +356,7 @@ export function extractCandidatesCheerio($, baseUrl, opts = {}) {
       if ($container.length === 0) break;
       const t = $container.text();
       if (t.length > 1200) break;
-      PRICE_RE.lastIndex = 0;
-      if (PRICE_RE.test(t)) priceText = t;
+      if (extractPrices(t).length > 0) priceText = t;
     }
     if (!priceText) return;
 
@@ -398,6 +404,9 @@ export async function extractCandidatesPuppeteer(page, opts = {}) {
       if (out.length >= maxCandidates) break;
       const text = (a.textContent || '').replace(/\s+/g, ' ').trim();
       if (text.length < 6 || text.length > 160) continue;
+      // Так само, як у cheerio-варіанті: перевіряємо через extractPrices()
+      // (кешбек відсіяно), а не сирий PRICE_RE.test() — інакше контейнер
+      // з видимою лише сумою кешбеку хибно "проходить" перевірку.
       let container = a;
       let priceText = '';
       for (let i = 0; i < 4 && !priceText; i++) {
@@ -405,8 +414,7 @@ export async function extractCandidatesPuppeteer(page, opts = {}) {
         if (!container) break;
         const t = container.textContent || '';
         if (t.length > 1200) break;
-        PRICE_RE.lastIndex = 0;
-        if (PRICE_RE.test(t)) priceText = t;
+        if (extractPrices(t).length > 0) priceText = t;
       }
       if (!priceText) continue;
       const prices = extractPrices(priceText);
@@ -507,8 +515,20 @@ export async function typeIntoSiteSearch(page, query) {
         page.keyboard.press('Enter'),
         page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: PUPPETEER_NAV_TIMEOUT_MS }).catch(() => null),
       ]);
-      // невелика пауза для дорендеру SPA-списку
-      await new Promise(r => setTimeout(r, 1200));
+      // Дочікуємось стабілізації контенту сторінки замість фіксованої
+      // паузи — на сайтах з поступовим (streaming/RSC) рендером видачі
+      // (перевірено на практиці: Yablyka) фіксовані 1200мс не завжди
+      // вистачало: бейдж кешбеку вже встигав відрендеритись, а сам блок
+      // ціни — ще ні, і парсер хапав суму кешбеку замість ціни. Порівнюємо
+      // довжину видимого тексту сторінки у 2 заміри — якщо однакова,
+      // вважаємо, що дорендер завершився.
+      let prevLen = -1;
+      for (let i = 0; i < 4; i++) {
+        await new Promise(r => setTimeout(r, 700));
+        const len = await page.evaluate(() => document.body.innerText.length).catch(() => -1);
+        if (len === prevLen) break;
+        prevLen = len;
+      }
       return true;
     } catch {
       continue;
