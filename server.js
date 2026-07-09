@@ -100,11 +100,21 @@ app.post('/api/products/sync', (req, res) => {
   }
 });
 
-// GET /api/products/prices -> { prices: { [productId]: { results: RetailStore[], updatedAt } } }
+// GET /api/products/prices -> { prices: { [productId]: { results: RetailStore[], updatedAt } }, lastSyncedAt }
 // Фронтенд тягне це при відкритті CRM, щоб одразу показати ціни з
-// останнього нічного оновлення — без кліку на "Оновити ціни".
+// останнього нічного оновлення — без кліку на "Оновити ціни". lastSyncedAt
+// (максимум updatedAt по всьому кешу) додано, щоб фронт міг показати не
+// лише "скільки товарів готово" (retailCacheStatus), а й "наскільки свіжі
+// ці дані" вже ПІСЛЯ завершення первинного прогріву кешу, коли самого лише
+// прогресу "cached/total" вже недостатньо.
 app.get('/api/products/prices', (_req, res) => {
-  res.json({ prices: loadPriceCache() });
+  const prices = loadPriceCache();
+  let lastSyncedAt = null;
+  for (const key in prices) {
+    const u = prices[key]?.updatedAt;
+    if (u && (!lastSyncedAt || u > lastSyncedAt)) lastSyncedAt = u;
+  }
+  res.json({ prices, lastSyncedAt });
 });
 
 // POST /api/products/refresh-now — ручний тригер нічного оновлення (напр.
