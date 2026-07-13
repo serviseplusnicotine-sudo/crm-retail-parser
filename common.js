@@ -85,7 +85,7 @@ export function hasProxy() {
 
 const BROWSER_LAUNCH_TIMEOUT_MS = 30000;
 const NEW_PAGE_TIMEOUT_MS = 15000;
-const PAGE_WORK_TIMEOUT_MS = 30000;
+const PAGE_WORK_TIMEOUT_MS = 45000;
 
 let browserPromise = null;
 
