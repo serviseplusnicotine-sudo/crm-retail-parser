@@ -5,6 +5,12 @@ import { scrapeStore } from './common.js';
 // достатньо швидкого шляху (fetch + cheerio). Сайт блокує запити з IP
 // датацентрів (403).
 //
+// useProxy: true — це ОДИН з двох магазинів (разом з iStore), для яких
+// проксі-пул взагалі вмикається (opt-in, див. коментар в common.js/
+// rawFetch про інцидент 13.07: раніше проксі бралось для ВСІХ магазинів
+// автоматично, і коли пул Webshare тимчасово впав, це поклало заодно й
+// GRO/Jabko/Yablyka/JustBuy, яким проксі не потрібен).
+//
 // usePuppeteerFallback: false — тимчасово вимкнено (перевірено на практиці:
 // навіть через пул із 10 датацентр-проксі Webshare fetch-крок стабільно
 // отримує 403 на КОЖНІЙ спробі, з різних IP пулу — тобто банять не
@@ -16,12 +22,13 @@ import { scrapeStore } from './common.js';
 // потрібні Jabko/Yablyka. Повернути в true, коли з'явиться робочий
 // (резидентний) проксі.
 const config = {
-    name: 'МТА',
-    baseUrl: 'https://mta.ua/',
-    searchUrl: (q) => `https://mta.ua/search?search=${encodeURIComponent(q)}`,
-    usePuppeteerFallback: false,
+      name: 'МТА',
+      baseUrl: 'https://mta.ua/',
+      searchUrl: (q) => `https://mta.ua/search?search=${encodeURIComponent(q)}`,
+      useProxy: true,
+      usePuppeteerFallback: false,
 };
 
 export function scrapeMTA(product) {
-    return scrapeStore(config, product);
+      return scrapeStore(config, product);
 }
