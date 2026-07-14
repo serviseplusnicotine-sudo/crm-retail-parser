@@ -30,15 +30,26 @@ import { scrapeStore } from './common.js';
 // Cloudflare-виклик). Немає потреби емулювати клік по полю пошуку на
 // baseUrl і друк тексту — просто відкриваємо готову адресу видачі й
 // чекаємо Cloudflare (waitForCloudflareChallenge у common.js).
+//
+// useFlareSolverr: true (14.07, четверта спроба) — навіть Puppeteer зі
+// stealth-плагіном (getPuppeteerExtra у common.js) НЕ проходить
+// Cloudflare Managed Challenge на mta.ua через резидентний проксі:
+// cfCleared лишався false навіть після очікування 20с, pageTitle весь
+// час "Just a moment...". Це означає, що блокування — не проста
+// перевірка навколо navigator.webdriver (яку stealth патчить), а щось
+// глибше (можливо, TLS/мережевий відбиток самого проксі). FlareSolverr —
+// окремий, спеціалізований сервіс саме під обхід таких Cloudflare-
+// перевірок, пробуємо його ПЕРЕД власним Puppeteer-фолбеком.
 const config = {
-          name: 'МТА',
-          baseUrl: 'https://mta.ua/',
-          searchUrl: (q) => `https://mta.ua/search?search=${encodeURIComponent(q)}`,
-          useProxy: true,
-          usePuppeteerFallback: true,
-          puppeteerUseSearchUrl: true,
+            name: 'МТА',
+            baseUrl: 'https://mta.ua/',
+            searchUrl: (q) => `https://mta.ua/search?search=${encodeURIComponent(q)}`,
+            useProxy: true,
+            useFlareSolverr: true,
+            usePuppeteerFallback: true,
+            puppeteerUseSearchUrl: true,
 };
 
 export function scrapeMTA(product) {
-          return scrapeStore(config, product);
+            return scrapeStore(config, product);
 }
