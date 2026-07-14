@@ -31,15 +31,27 @@ import { scrapeStore } from './common.js';
 // ні. Замість емуляції цього кліку в Puppeteer одразу відкриваємо адресу
 // видачі пошуку напряму (searchUrl вище) — вона серверно-рендерить
 // результати незалежно від клієнтського UI, тож нема чого емулювати.
+//
+// useFlareSolverr: true (14.07, четверта спроба) — навіть звичайний
+// Puppeteer + stealth-плагін через резидентний проксі отримував лише
+// урізаний контент (2 кандидати — посилання "N відгуків"/"Залишити
+// відгук", БЕЗ справжніх посилань з назвою товару, хоча сторінка формально
+// рендерилась повністю: cfCleared=true, textLen=5272, anchors=298).
+// Ручна перевірка того самого URL у звичайному Chrome стабільно давала 4
+// кандидати з реальними назвами. Пробуємо FlareSolverr (окремий сервіс,
+// спеціалізований на обході антибот-перевірок) як ще один шлях — якщо і
+// він не допоможе, Puppeteer-фолбек нижче все одно лишається як останній
+// шанс.
 const config = {
-          name: 'iStore',
-          baseUrl: 'https://www.istore.ua/ua/',
-          searchUrl: (q) => `https://www.istore.ua/ua/find/?q=${encodeURIComponent(q)}`,
-          useProxy: true,
-          usePuppeteerFallback: true,
-          puppeteerUseSearchUrl: true,
+            name: 'iStore',
+            baseUrl: 'https://www.istore.ua/ua/',
+            searchUrl: (q) => `https://www.istore.ua/ua/find/?q=${encodeURIComponent(q)}`,
+            useProxy: true,
+            useFlareSolverr: true,
+            usePuppeteerFallback: true,
+            puppeteerUseSearchUrl: true,
 };
 
 export function scrapeIStore(product) {
-          return scrapeStore(config, product);
+            return scrapeStore(config, product);
 }
