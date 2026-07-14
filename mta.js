@@ -23,14 +23,22 @@ import { scrapeStore } from './common.js';
 // простого fetch з Node.js немає, а в справжнього headless Chrome — є.
 // Тому пробуємо Puppeteer через той самий резидентний проксі — можливо,
 // саме "нормального" TLS/HTTP-відбитка достатньо, щоб пройти перевірку.
+//
+// puppeteerUseSearchUrl: true (14.07) — mta.ua серверно-рендерить видачу
+// пошуку на searchUrl напряму (перевірено вручну: /search?search=...
+// показує реальні товари з цінами одразу після того, як минає
+// Cloudflare-виклик). Немає потреби емулювати клік по полю пошуку на
+// baseUrl і друк тексту — просто відкриваємо готову адресу видачі й
+// чекаємо Cloudflare (waitForCloudflareChallenge у common.js).
 const config = {
-        name: 'МТА',
-        baseUrl: 'https://mta.ua/',
-        searchUrl: (q) => `https://mta.ua/search?search=${encodeURIComponent(q)}`,
-        useProxy: true,
-        usePuppeteerFallback: true,
+          name: 'МТА',
+          baseUrl: 'https://mta.ua/',
+          searchUrl: (q) => `https://mta.ua/search?search=${encodeURIComponent(q)}`,
+          useProxy: true,
+          usePuppeteerFallback: true,
+          puppeteerUseSearchUrl: true,
 };
 
 export function scrapeMTA(product) {
-        return scrapeStore(config, product);
+          return scrapeStore(config, product);
 }
