@@ -1,8 +1,9 @@
 import { scrapeStore } from './common.js';
 
-// iStore.ua (Bitrix). Точний URL пошукової видачі не підтверджено на 100% —
-// пробуємо ймовірний Bitrix-шлях /ua/search/. Сайт блокує запити з IP
-// датацентрів (403).
+// iStore.ua (Bitrix). Реальна адреса видачі пошуку — /ua/find/?q=...
+// (підтверджено вручну 14.07: старе припущення /ua/search/?q= було
+// невірним — Bitrix-сайти зазвичай використовують саме /find/). Сайт
+// блокує запити з IP датацентрів (403).
 //
 // useProxy: true — це ОДИН з двох магазинів (разом з МТА), для яких
 // проксі-пул взагалі вмикається (opt-in, див. коментар в common.js/
@@ -20,16 +21,25 @@ import { scrapeStore } from './common.js';
 // HTTP 403 (перевірено на практиці, 14.07) — тобто сайт звіряє не лише
 // репутацію IP, а й "відбиток" запиту (TLS/HTTP-заголовки), якого в
 // простого fetch з Node.js немає, а в справжнього headless Chrome — є.
-// Тому пробуємо Puppeteer через той самий резидентний проксі — можливо,
-// саме "нормального" TLS/HTTP-відбитка достатньо, щоб пройти перевірку.
+// Тому пробуємо Puppeteer через той самий резидентний проксі.
+//
+// puppeteerUseSearchUrl: true (14.07) — поле пошуку на iStore.ua
+// зʼявляється в DOM лише після кліку іконки-лупи в шапці, і ця взаємодія
+// виявилась ненадійною навіть при СПРАВЖНЬОМУ, довіреному кліку в
+// звичайному (не headless) браузері — перевірено вручну: перший клік
+// відкрив поле, другий (той самий елемент, той самий сайт за хвилину) —
+// ні. Замість емуляції цього кліку в Puppeteer одразу відкриваємо адресу
+// видачі пошуку напряму (searchUrl вище) — вона серверно-рендерить
+// результати незалежно від клієнтського UI, тож нема чого емулювати.
 const config = {
-        name: 'iStore',
-        baseUrl: 'https://www.istore.ua/ua/',
-        searchUrl: (q) => `https://www.istore.ua/ua/search/?q=${encodeURIComponent(q)}`,
-        useProxy: true,
-        usePuppeteerFallback: true,
+          name: 'iStore',
+          baseUrl: 'https://www.istore.ua/ua/',
+          searchUrl: (q) => `https://www.istore.ua/ua/find/?q=${encodeURIComponent(q)}`,
+          useProxy: true,
+          usePuppeteerFallback: true,
+          puppeteerUseSearchUrl: true,
 };
 
 export function scrapeIStore(product) {
-        return scrapeStore(config, product);
+          return scrapeStore(config, product);
 }
