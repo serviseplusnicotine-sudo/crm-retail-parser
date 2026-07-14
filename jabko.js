@@ -17,13 +17,36 @@ import { scrapeStore } from './common.js';
 // Puppeteer — і зайве навантажувало сам jabko.ua. Yablyka (той самий клас
 // проблеми — SPA/стрімінговий рендер) вже мала цей прапор виставленим.
 // Прибираємо зайвий крок і одразу йдемо в Puppeteer, як і для Yablyka.
+//
+// puppeteerUseSearchUrl: true (15.07, знайдено користувачем — "candidates
+// однакові для всіх запитів") — діагностичне логування (debugInfo у
+// scrapeStore) показало, що для КОЖНОГО запиту (геть різні товари Garmin)
+// Puppeteer-фолбек повертав pageUrl=https://jabko.ua/ (саму головну
+// сторінку!) з ІДЕНТИЧНИМ набором з 147 кандидатів (ті самі топ-товари
+// головної сторінки — iPhone/AirPods/MacBook — які взагалі не стосуються
+// запиту). Причина: без цього прапора scrapeStore відкриває baseUrl і
+// друкує запит через typeIntoSiteSearch() (клік у поле пошуку + Enter +
+// page.waitForNavigation). На jabko.ua натискання Enter в полі пошуку,
+// схоже, НЕ ініціює справжню навігацію (можливо, JS-автодоповнення без
+// переходу) — waitForNavigation тихо йде в timeout (є .catch(() => null)),
+// typeIntoSiteSearch все одно повертає true (клік+ввід технічно вдались),
+// і extractCandidatesPuppeteer() потім читає DOM, який так і лишився
+// головною сторінкою. Тобто для Jabko ця гілка НІКОЛИ не бачила справжньої
+// видачі пошуку — просто щоразу підбирала (і відкидала, бо score товарів
+// головної сторінки не збігається з запитом) той самий список.
+// Виправлення: як і для iStore/МТА вище, коли адреса видачі пошуку вже
+// відома і підтверджена вручну (route=product/search&search=...,
+// повертає 200 — див. коментар нижче), надійніше одразу відкрити її
+// напряму (config.searchUrl(q)), а не покладатись на емуляцію кліку в
+// UI сайту.
 const config = {
-    name: 'Jabko',
-    baseUrl: 'https://jabko.ua/',
-    searchUrl: (q) => `https://jabko.ua/index.php?route=product/search&search=${encodeURIComponent(q)}`,
-    skipCheerioFetch: true,
+      name: 'Jabko',
+      baseUrl: 'https://jabko.ua/',
+      searchUrl: (q) => `https://jabko.ua/index.php?route=product/search&search=${encodeURIComponent(q)}`,
+      skipCheerioFetch: true,
+      puppeteerUseSearchUrl: true,
 };
 
 export function scrapeJabko(product) {
-    return scrapeStore(config, product);
+      return scrapeStore(config, product);
 }
