@@ -6,57 +6,67 @@ import { rawFetch, buildQueryVariants, scoreMatch, MATCH_THRESHOLD, isAccessoryT
 // { "query": "..." } -> { responseData: { products: { data: [...] } } }.
 // Знайдено через перехоплення fetch/XHR у реальному пошуковому полі сайту.
 // Puppeteer тут не потрібен — це чистий і надійний JSON-шлях.
-
 const API_URL = 'https://api.justbuy.com.ua/global-search/content';
 const SEARCH_PAGE = (q) => `https://justbuy.com.ua/ua/search?q=${encodeURIComponent(q)}`;
 
 export async function scrapeJustBuy(product) {
-  // Пробуємо запит від найповнішого до найкоротшого — на випадок, якщо
-  // API JustBuy теж не любить задовгі запити (той самий підхід, що й
-  // для GRO, де це підтверджено на практиці).
-  const queries = buildQueryVariants(product);
-  const now = new Date();
-  const updated = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} · ${now.toLocaleDateString('uk-UA')}`;
-
-  try {
-    for (const query of queries) {
-      const res = await rawFetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      const items = json?.responseData?.products?.data || [];
-
-      const queryIsAccessory = isAccessoryTitle(query);
-      let best = null;
-      let bestScore = 0;
-      for (const p of items) {
-        const title = p?.nameI18n?.ua || p?.nameI18n?.ru || p?.nameI18n?.en || '';
-        let s = scoreMatch(query, title);
-        if (!queryIsAccessory && isAccessoryTitle(title)) s *= 0.5;
-        if (s > bestScore) {
-          bestScore = s;
-          best = {
-            title,
-            price: p.price,
-            available: p.availabilityStatus === 'IN_STOCK',
-          };
-        }
-      }
-
-      if (best && bestScore >= MATCH_THRESHOLD) {
-        return {
-          store: 'JustBuy', price: best.price, available: best.available,
-          updated, status: 'ok', url: SEARCH_PAGE(query), matchedTitle: best.title,
-        };
-      }
+    // Пробуємо запит від найповнішого до найкоротшого — на випадок, якщо
+    // API JustBuy теж не любить задовгі запити (той самий підхід, що й
+    // для GRO, де це підтверджено на практиці).
+    const queries = buildQueryVariants(product);
+    const now = new Date();
+    const updated = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} · ${now.toLocaleDateString('uk-UA')}`;
+  
+    try {
+          for (const query of queries) {
+                  const res = await rawFetch(API_URL, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ query }),
+                  });
+                  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                  const json = await res.json();
+                  const items = json?.responseData?.products?.data || [];
+            
+                  const queryIsAccessory = isAccessoryTitle(query);
+                  let best = null;
+                  let bestScore = 0;
+                  for (const p of items) {
+                            const title = p?.nameI18n?.ua || p?.nameI18n?.ru || p?.nameI18n?.en || '';
+                            let s = scoreMatch(query, title);
+                            if (!queryIsAccessory && isAccessoryTitle(title)) s *= 0.5;
+                            if (s > bestScore) {
+                                        bestScore = s;
+                                        best = {
+                                                      title,
+                                                      price: p.price,
+                                                      available: p.availabilityStatus === 'IN_STOCK',
+                                        };
+                            }
+                  }
+            
+                  // ТИМЧАСОВЕ діагностичне логування (15.07, знайдено користувачем:
+                  // "PS5 SLIM Digital 825GB" і "Xbox Series X Digital 1TB" показували
+                  // ₴2359/₴3249 — ціни, немислимі для самих консолей). Причина —
+                  // ACCESSORY_RE у common.js не ловив наклейки/скіни на корпус консолі
+                  // (щойно розширено списком наклейка/наліпка/стікер/скін/вініл).
+                  // Логуємо найкращий кандидат кожного запиту (title/price/score), щоб
+                  // підтвердити на живих даних, що після фіксу такі candidates або
+                  // штрафуються (score*0.5, не проходять MATCH_THRESHOLD), або взагалі
+                  // не траплялись — прибрати лог, коли підтверджено на проді.
+                  console.log(`[retail-parser][debug] JustBuy query="${query}" items=${items.length} bestScore=${bestScore.toFixed(2)}${best ? ` bestTitle="${best.title}" bestPrice=${best.price}` : ''}`);
+            
+                  if (best && bestScore >= MATCH_THRESHOLD) {
+                            return {
+                                        store: 'JustBuy', price: best.price, available: best.available,
+                                        updated, status: 'ok', url: SEARCH_PAGE(query), matchedTitle: best.title,
+                            };
+                  }
+          }
+          return { store: 'JustBuy', price: 0, available: false, updated, status: 'no-product' };
+    } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+                console.error(`[retail-parser] JustBuy впав: ${msg}`);
+          return { store: 'JustBuy', price: 0, available: false, updated, status: 'error', error: msg };
     }
-    return { store: 'JustBuy', price: 0, available: false, updated, status: 'no-product' };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error(`[retail-parser] JustBuy впав: ${msg}`);
-    return { store: 'JustBuy', price: 0, available: false, updated, status: 'error', error: msg };
-  }
 }
