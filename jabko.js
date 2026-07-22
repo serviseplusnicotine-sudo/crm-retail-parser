@@ -42,7 +42,7 @@ import { scrapeStore } from './common.js';
 const config = {
       name: 'Jabko',
       baseUrl: 'https://jabko.ua/',
-      searchUrl: (q) => `https://jabko.ua/index.php?route=product/search&search=${encodeURIComponent(q)}`,
+      searchUrl: (q) => `https://jabko.ua/search/?q=${encodeURIComponent(q)}`,
       skipCheerioFetch: true,
       puppeteerUseSearchUrl: true,
 };
