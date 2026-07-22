@@ -402,7 +402,7 @@ export function extractCandidatesCheerio($, baseUrl, opts = {}) {
   $('a[href]').each((_, el) => {
               if (candidates.length >= maxCandidates) return;
               const $a = $(el);
-              const text = $a.text().replace(/\s+/g, ' ').trim();
+              const text = $a.text().replace(/\s+/g, ' ').trim() || ($a.find('img[alt]').first().attr('alt') || '').trim();
               if (text.length < 6 || text.length > 160) return;
               const href = $a.attr('href');
               if (!href) return;
