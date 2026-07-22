@@ -9,8 +9,8 @@ import { rawFetch, collectCookies, buildQueryVariants, extractCandidatesCheerio,
 // пошук з тими самими cookie+токеном. Підтверджено вручну під час розробки.
 // Puppeteer тут не потрібен — швидкий шлях повністю самодостатній.
 
-const BASE = 'https://grokholsky.com/ua/';
-const SEARCH_URL = 'https://grokholsky.com/ua/site/search/';
+const BASE = 'https://gro.ua/';
+const SEARCH_URL = 'https://gro.ua/site/search/';
 
 async function fetchSearchHtml(query) {
   const homeRes = await rawFetch(BASE);
