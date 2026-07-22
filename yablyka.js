@@ -13,7 +13,6 @@ const config = {
   // довантажується пізніше. Тому швидкий fetch/cheerio-шлях для цього
   // магазину пропускаємо і одразу йдемо через Puppeteer, який чекає
   // повного дорендеру сторінки.
-  skipCheerioFetch: true,
     puppeteerUseSearchUrl: true,
 };
 
