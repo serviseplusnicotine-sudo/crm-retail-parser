@@ -14,6 +14,7 @@ const config = {
   // магазину пропускаємо і одразу йдемо через Puppeteer, який чекає
   // повного дорендеру сторінки.
     puppeteerUseSearchUrl: true,
+  useFlareSolverr: true,
 };
 
 export function scrapeYablyka(product) {
