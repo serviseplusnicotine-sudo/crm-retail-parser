@@ -292,7 +292,7 @@ async function fetchViaFlareSolverrInner(url, opts = {}) {
 }
 
 const PRICE_RE = /(\d[\d\s ]{1,7})\s*(?:₴|грн\.?|uah)/gi;
-const CASHBACK_STRIP_RE = /\d[\d\s ]{0,7}\s?(?:₴|грн\.?|uah)\s*(?:кешбек|кэшбек|бонус|cashback)[а-яіїєa-z]*/gi;
+const CASHBACK_STRIP_RE = /(?:\d[\d\s ]{0,7}\s?(?:₴|грн\.?|uah)\s*(?:кешбек|кэшбек|бонус|cashback)[а-яіїєa-z]*)|(?:(?:кешбек|кэшбек|бонус|cashback)[а-яіїєa-z]*\s*\d[\d\s ]{0,7}\s?(?:₴|грн\.?|uah))/gi;
 
 export function extractPrices(text) {
           const cleaned = text.replace(CASHBACK_STRIP_RE, ' ');
@@ -442,7 +442,7 @@ export async function extractCandidatesPuppeteer(page, opts = {}) {
           const maxCandidates = opts.maxCandidates ?? 400;
           return page.evaluate((maxCandidates) => {
                       const PRICE_RE = /(\d[\d\s ]{1,7})\s*(?:₴|грн\.?|uah)/gi;
-                      const CASHBACK_STRIP_RE = /\d[\d\s ]{0,7}\s?(?:₴|грн\.?|uah)\s*(?:кешбек|кэшбек|бонус|cashback)[а-яіїєa-z]*/gi;
+                      const CASHBACK_STRIP_RE = /(?:\d[\d\s ]{0,7}\s?(?:₴|грн\.?|uah)\s*(?:кешбек|кэшбек|бонус|cashback)[а-яіїєa-z]*)|(?:(?:кешбек|кэшбек|бонус|cashback)[а-яіїєa-z]*\s*\d[\d\s ]{0,7}\s?(?:₴|грн\.?|uah))/gi;
                       const OUT_RE = /немає в наявн|нет в наличии|під замовлення|очікується|out of stock|товар закінчився|тимчасово відсутн/i;
                       function extractPrices(text) {
                                     const cleaned = text.replace(CASHBACK_STRIP_RE, ' ');
